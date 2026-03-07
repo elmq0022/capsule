@@ -25,14 +25,14 @@ Capsule aims to:
 
 ## Roadmap
 
-1. run a command in a child process
-2. isolate hostname with UTS namespace
-3. isolate root filesystem with `chroot`
-4. isolate process tree and mounts with PID + mount namespaces
-5. run rootless with user namespaces and UID/GID maps
-6. apply CPU and memory limits with cgroups
-7. pull image layers and config from registry
-8. unpack layers and run pulled image
+- [x] run a command in a child process
+- [ ] isolate hostname with UTS namespace
+- [ ] isolate root filesystem with `chroot`
+- [ ] isolate process tree and mounts with PID + mount namespaces
+- [ ] run rootless with user namespaces and UID/GID maps
+- [ ] apply CPU and memory limits with cgroups
+- [ ] pull image layers and config from registry
+- [ ] unpack layers and run pulled image
 
 ## Scope
 
