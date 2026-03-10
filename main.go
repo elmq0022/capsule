@@ -27,12 +27,19 @@ func run() {
 		fmt.Println("did not provide a program to run")
 		return
 	}
+
+	// this reruns the **same** binary. So we run this this
+	// main.go file but with the name child instead of run
+	// the first pass sets up the new namespace and settings
+	// the second pass (child) will use that namespace and set
+	// the new hostname
 	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
+		// create a new namespace and a new user here
 		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWUSER,
 		UidMappings: []syscall.SysProcIDMap{
 			{

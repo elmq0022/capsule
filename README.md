@@ -26,10 +26,10 @@ Capsule aims to:
 ## Roadmap
 
 - [x] run a command in a child process
+- [x] run rootless with user namespaces and UID/GID maps
 - [x] isolate hostname with UTS namespace
 - [ ] isolate root filesystem with `chroot`
 - [ ] isolate process tree and mounts with PID + mount namespaces
-- [ ] run rootless with user namespaces and UID/GID maps
 - [ ] apply CPU and memory limits with cgroups
 - [ ] pull image layers and config from registry
 - [ ] unpack layers and run pulled image
