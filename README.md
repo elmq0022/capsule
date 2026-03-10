@@ -26,7 +26,7 @@ Capsule aims to:
 ## Roadmap
 
 - [x] run a command in a child process
-- [ ] isolate hostname with UTS namespace
+- [x] isolate hostname with UTS namespace
 - [ ] isolate root filesystem with `chroot`
 - [ ] isolate process tree and mounts with PID + mount namespaces
 - [ ] run rootless with user namespaces and UID/GID maps
