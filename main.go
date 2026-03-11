@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 )
 
@@ -40,7 +41,7 @@ func run() {
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		// create a new namespace and a new user here
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWUSER,
+		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
 		UidMappings: []syscall.SysProcIDMap{
 			{
 				ContainerID: 0,
@@ -83,10 +84,32 @@ func child() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("%q\n", os.Args)
-	err := cmd.Run()
-
+	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
+		os.Exit(1)
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
+		os.Exit(1)
+	}
+
+	rootfs := filepath.Join(home, ".local", "share", "capsule", "rootfs", "busybox")
+	if err := syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
+		os.Exit(1)
+	}
+
+	if err := syscall.Chdir(rootfs); err != nil {
+		os.Exit(1)
+	}
+	if err := syscall.Chroot("."); err != nil {
+		os.Exit(1)
+	}
+	if err := syscall.Chdir("/"); err != nil {
+		os.Exit(1)
+	}
+
+	fmt.Printf("%q\n", os.Args)
+
+	if err := cmd.Run(); err != nil {
 		fmt.Printf(
 			"running command %s returned error: %q\n",
 			os.Args[1],

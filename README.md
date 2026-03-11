@@ -20,6 +20,7 @@ Capsule aims to:
 - `capsule run <image> [command...]`
 - `capsule run --hostname <name> <image> [command...]`
 - `capsule run --memory <bytes> --cpus <count> <image> [command...]`
+- rootfs data lives under `~/.local/share/capsule/rootfs/`
 - forwards stdin/stdout/stderr to the container process
 - returns container exit code
 
@@ -28,8 +29,9 @@ Capsule aims to:
 - [x] run a command in a child process
 - [x] run rootless with user namespaces and UID/GID maps
 - [x] isolate hostname with UTS namespace
-- [ ] isolate root filesystem with `chroot`
+- [x] isolate root filesystem with `chroot`
 - [ ] isolate process tree and mounts with PID + mount namespaces
+- [ ] isolate networking with a network namespace
 - [ ] apply CPU and memory limits with cgroups
 - [ ] pull image layers and config from registry
 - [ ] unpack layers and run pulled image
