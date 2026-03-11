@@ -30,7 +30,7 @@ Capsule aims to:
 - [x] run rootless with user namespaces and UID/GID maps
 - [x] isolate hostname with UTS namespace
 - [x] isolate root filesystem with `chroot`
-- [ ] isolate process tree and mounts with PID + mount namespaces
+- [x] isolate process tree and mounts with PID + mount namespaces
 - [ ] isolate networking with a network namespace
 - [ ] apply CPU and memory limits with cgroups
 - [ ] pull image layers and config from registry
@@ -42,9 +42,14 @@ Capsule aims to:
 - Linux only
 - command-line only
 - no daemon
+- no init process for PID 1
 
 ## Non-goals
+
+These non goals are called out specifically to reduce project scope
+and ensure completion of the stated goals.
 
 - orchestration or scheduling
 - advanced networking
 - production-hard security hardening
+- no mini init system for PID 1
