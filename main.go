@@ -41,7 +41,10 @@ func run() {
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		// create a new namespace and a new user here
-		Cloneflags: syscall.CLONE_NEWUTS | syscall.CLONE_NEWUSER | syscall.CLONE_NEWNS,
+		Cloneflags: syscall.CLONE_NEWUTS |
+			syscall.CLONE_NEWUSER |
+			syscall.CLONE_NEWNS |
+			syscall.CLONE_NEWPID,
 		UidMappings: []syscall.SysProcIDMap{
 			{
 				ContainerID: 0,
@@ -107,7 +110,13 @@ func child() {
 		os.Exit(1)
 	}
 
+	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
+		os.Exit(1)
+	}
+	defer syscall.Unmount("/proc", 0)
+
 	fmt.Printf("%q\n", os.Args)
+	fmt.Printf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid())
 
 	if err := cmd.Run(); err != nil {
 		fmt.Printf(
