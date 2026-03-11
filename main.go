@@ -8,10 +8,14 @@ import (
 	"syscall"
 )
 
+func fatalf(code int, format string, args ...any) {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	os.Exit(code)
+}
+
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Printf("Expected 3 args but only got %q", os.Args)
-		os.Exit(1)
+		fatalf(1, "expected at least 3 args but got %q", os.Args)
 	}
 	switch cmd := os.Args[1]; cmd {
 	case "run":
@@ -19,14 +23,13 @@ func main() {
 	case "child":
 		child()
 	default:
-		fmt.Printf("arg was %s\n", cmd)
+		fatalf(1, "unknown command %q", cmd)
 	}
 }
 
 func run() {
 	if len(os.Args) < 3 {
-		fmt.Println("did not provide a program to run")
-		return
+		fatalf(1, "did not provide a program to run")
 	}
 
 	// this reruns the **same** binary. So we run this this
@@ -63,19 +66,13 @@ func run() {
 	}
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf(
-			"running command %s returned error: %q\n",
-			os.Args[2],
-			err,
-		)
-		os.Exit(1)
+		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
 	}
 }
 
 func child() {
 	if len(os.Args) < 3 {
-		fmt.Println("did not provide a program to run")
-		return
+		fatalf(1, "did not provide a program to run")
 	}
 	cmd := exec.Command(os.Args[2], os.Args[3:]...)
 	cmd.Stdin = os.Stdin
@@ -83,35 +80,34 @@ func child() {
 	cmd.Stderr = os.Stderr
 
 	if err := syscall.Sethostname([]byte("capsule")); err != nil {
-		fmt.Printf("couldn't set hostname: %v", err)
-		os.Exit(1)
+		fatalf(1, "couldn't set hostname: %v", err)
 	}
 
 	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't make mount namespace private: %v", err)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't determine home directory: %v", err)
 	}
 
 	rootfs := filepath.Join(home, ".local", "share", "capsule", "rootfs", "busybox")
 	if err := syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't bind-mount rootfs %q: %v", rootfs, err)
 	}
 
 	if err := syscall.Chdir(rootfs); err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't chdir to rootfs %q: %v", rootfs, err)
 	}
 	if err := syscall.Chroot("."); err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't chroot into %q: %v", rootfs, err)
 	}
 	if err := syscall.Chdir("/"); err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't chdir to new root: %v", err)
 	}
 
 	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
-		os.Exit(1)
+		fatalf(1, "couldn't mount /proc: %v", err)
 	}
 	defer syscall.Unmount("/proc", 0)
 
@@ -119,11 +115,6 @@ func child() {
 	fmt.Printf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid())
 
 	if err := cmd.Run(); err != nil {
-		fmt.Printf(
-			"running command %s returned error: %q\n",
-			os.Args[1],
-			err,
-		)
-		os.Exit(1)
+		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
 	}
 }
