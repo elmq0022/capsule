@@ -31,10 +31,13 @@ Capsule aims to:
 - [x] isolate hostname with UTS namespace
 - [x] isolate root filesystem with `chroot`
 - [x] isolate process tree and mounts with PID + mount namespaces
-- [ ] isolate networking with a network namespace
 - [x] apply pids and memory limits with cgroups
 - [ ] pull image layers and config from registry
 - [ ] unpack layers and run pulled image
+  
+## Stretch Goal
+
+- [ ] isolate networking with a network namespace 
 
 ## Scope
 
