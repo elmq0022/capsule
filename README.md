@@ -19,7 +19,7 @@ Capsule aims to:
 - `capsule pull <image>`
 - `capsule run <image> [command...]`
 - `capsule run --hostname <name> <image> [command...]`
-- `capsule run --memory <bytes> --cpus <count> <image> [command...]`
+- `capsule run --memory <bytes> --pids <count> <image> [command...]`
 - rootfs data lives under `~/.local/share/capsule/rootfs/`
 - forwards stdin/stdout/stderr to the container process
 - returns container exit code
