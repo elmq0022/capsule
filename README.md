@@ -12,7 +12,7 @@ Capsule aims to:
 - pull container images from a Docker registry
 - run a single container from the CLI
 - isolate workloads with Linux namespaces
-- apply basic CPU and memory limits via cgroups
+- apply basic pid and memory limits via cgroups
 
 ## Planned CLI
 
@@ -32,7 +32,7 @@ Capsule aims to:
 - [x] isolate root filesystem with `chroot`
 - [x] isolate process tree and mounts with PID + mount namespaces
 - [ ] isolate networking with a network namespace
-- [ ] apply CPU and memory limits with cgroups
+- [x] apply pids and memory limits with cgroups
 - [ ] pull image layers and config from registry
 - [ ] unpack layers and run pulled image
 
