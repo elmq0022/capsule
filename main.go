@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	"github.com/elmq0022/capsule/cgroups"
+	"github.com/elmq0022/capsule/namespaces"
 	"github.com/elmq0022/capsule/rootfs"
 )
 
@@ -43,33 +44,11 @@ func run() {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	cmd.SysProcAttr = &syscall.SysProcAttr{
-		// create a new namespace and a new user here
-		Cloneflags: syscall.CLONE_NEWUTS |
-			syscall.CLONE_NEWUSER |
-			syscall.CLONE_NEWNS |
-			syscall.CLONE_NEWPID,
-		UidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      os.Geteuid(),
-				Size:        1,
-			},
-		},
-		GidMappingsEnableSetgroups: false,
-		GidMappings: []syscall.SysProcIDMap{
-			{
-				ContainerID: 0,
-				HostID:      os.Getegid(),
-				Size:        1,
-			},
-		},
-	}
+	namespaces.SetNamespaces(cmd)
 
 	cgroup, err := cgroups.NewCGroup()
 	if err != nil {
-		fatalf(1, "could not create cgroup: %w", err)
+		fatalf(1, "could not create cgroup: %v", err)
 	}
 
 	defer func() {

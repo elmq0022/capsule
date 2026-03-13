@@ -47,8 +47,11 @@ func createCgroupDir() (string, error) {
 	if !strings.HasPrefix(line, "0::/") {
 		return "", fmt.Errorf("expected cgroup v2 but got %q", line)
 	}
-	path := strings.TrimPrefix(line, "0::")
-	parent := filepath.Dir(filepath.Join("/sys/fs/cgroup/", path))
+	path := strings.TrimPrefix(line, "0::/")
+	if path == "" {
+		return "", fmt.Errorf("expected a non-empty cgroup path in %q", line)
+	}
+	parent := filepath.Dir(filepath.Join("/sys/fs/cgroup", path))
 	cgroupDir := filepath.Join(parent, fmt.Sprintf("capsule-%d", os.Getpid()))
 
 	if err := os.Mkdir(cgroupDir, 0o755); err != nil {
