@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"syscall"
 
 	"github.com/elmq0022/capsule/cgroups"
+	"github.com/elmq0022/capsule/rootfs"
 )
 
 func fatalf(code int, format string, args ...any) {
@@ -112,33 +112,11 @@ func child() {
 		fatalf(1, "couldn't set hostname: %v", err)
 	}
 
-	if err := syscall.Mount("", "/", "", syscall.MS_REC|syscall.MS_PRIVATE, ""); err != nil {
-		fatalf(1, "couldn't make mount namespace private: %v", err)
+	rfs := rootfs.NewRootFS("busybox")
+	if err := rfs.MountRootFS(); err != nil {
+		fatalf(1, err.Error())
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		fatalf(1, "couldn't determine home directory: %v", err)
-	}
-
-	rootfs := filepath.Join(home, ".local", "share", "capsule", "rootfs", "busybox")
-	if err := syscall.Mount(rootfs, rootfs, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
-		fatalf(1, "couldn't bind-mount rootfs %q: %v", rootfs, err)
-	}
-
-	if err := syscall.Chdir(rootfs); err != nil {
-		fatalf(1, "couldn't chdir to rootfs %q: %v", rootfs, err)
-	}
-	if err := syscall.Chroot("."); err != nil {
-		fatalf(1, "couldn't chroot into %q: %v", rootfs, err)
-	}
-	if err := syscall.Chdir("/"); err != nil {
-		fatalf(1, "couldn't chdir to new root: %v", err)
-	}
-
-	if err := syscall.Mount("proc", "/proc", "proc", 0, ""); err != nil {
-		fatalf(1, "couldn't mount /proc: %v", err)
-	}
-	defer syscall.Unmount("/proc", 0)
+	defer rfs.Close()
 
 	fmt.Printf("%q\n", os.Args)
 	fmt.Printf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid())
