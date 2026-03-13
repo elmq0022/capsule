@@ -1,14 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
+
+	"github.com/elmq0022/capsule/cgroups"
 )
 
 func fatalf(code int, format string, args ...any) {
@@ -68,17 +67,22 @@ func run() {
 		},
 	}
 
-	cgroupPath, err := createCgroupDir()
+	cgroup, err := cgroups.NewCGroup()
 	if err != nil {
-		fatalf(1, "couldn't create cgroup: %v", err)
+		fatalf(1, "could not create cgroup: %w", err)
 	}
-	defer os.Remove(cgroupPath)
 
-	if err := writeCgroupValue(cgroupPath, "pids.max", "10"); err != nil {
+	defer func() {
+		if err := cgroup.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "cleanup cgroup: %v\n", err)
+		}
+	}()
+
+	if err := cgroup.SetPidsMax(10); err != nil {
 		fatalf(1, "%w", err)
 	}
 
-	if err := writeCgroupValue(cgroupPath, "memory.max", "67108864"); err != nil {
+	if err := cgroup.SetMemoryMax(67108864); err != nil {
 		fatalf(1, "%w", err)
 	}
 
@@ -86,8 +90,8 @@ func run() {
 		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
 	}
 
-	if err := writeCgroupValue(cgroupPath, "cgroup.procs", strconv.Itoa(cmd.Process.Pid)); err != nil {
-		fatalf(1, "couldn't attach child pid %d to cgroup %q: %v", cmd.Process.Pid, cgroupPath, err)
+	if err := cgroup.AttachPID(cmd.Process.Pid); err != nil {
+		fatalf(1, "couldn't attach child pid %d to cgroup: %w", cmd.Process.Pid, err)
 	}
 
 	if err := cmd.Wait(); err != nil {
@@ -142,44 +146,4 @@ func child() {
 	if err := cmd.Run(); err != nil {
 		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
 	}
-}
-
-func createCgroupDir() (string, error) {
-	// assumes cgroup v2
-
-	f, err := os.Open("/proc/self/cgroup")
-	if err != nil {
-		return "", fmt.Errorf("couldn't open /proc/self/cgroup: %w", err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	if !scanner.Scan() {
-		if err := scanner.Err(); err != nil {
-			return "", fmt.Errorf("scan /proc/self/cgroup: %w", err)
-		}
-		return "", fmt.Errorf("/proc/self/cgroup was empty")
-	}
-
-	line := scanner.Text()
-
-	if !strings.HasPrefix(line, "0::/") {
-		return "", fmt.Errorf("expected cgroup v2 but got %q", line)
-	}
-	path := strings.TrimPrefix(line, "0::")
-	parent := filepath.Dir(filepath.Join("/sys/fs/cgroup/", path))
-	cgroupDir := filepath.Join(parent, fmt.Sprintf("capsule-%d", os.Getpid()))
-
-	if err := os.Mkdir(cgroupDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir %q: %w", cgroupDir, err)
-	}
-
-	return cgroupDir, nil
-}
-
-func writeCgroupValue(cgroupDir, file, value string) error {
-	if err := os.WriteFile(filepath.Join(cgroupDir, file), []byte(value), 0o644); err != nil {
-		return fmt.Errorf("could not write value %q to file %q: %w", value, file, err)
-	}
-	return nil
 }
