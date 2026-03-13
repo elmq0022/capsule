@@ -112,11 +112,18 @@ func child() {
 		fatalf(1, "couldn't set hostname: %v", err)
 	}
 
-	rfs := rootfs.NewRootFS("busybox")
-	if err := rfs.MountRootFS(); err != nil {
-		fatalf(1, err.Error())
+	rfs, err := rootfs.NewRootFS("busybox")
+	if err != nil {
+		fatalf(1, "couldn't prepare rootfs: %v", err)
 	}
-	defer rfs.Close()
+	if err := rfs.MountRootFS(); err != nil {
+		fatalf(1, "%v", err)
+	}
+	defer func() {
+		if err := rfs.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "cleanup rootfs: %v\n", err)
+		}
+	}()
 
 	fmt.Printf("%q\n", os.Args)
 	fmt.Printf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid())
