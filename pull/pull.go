@@ -4,22 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"path"
 	"time"
 )
 
-// const registry string = "https://registry-1.docker.io/v2/library"
+const registry string = "https://registry-1.docker.io/v2/"
 const auth_url = "https://auth.docker.io/token"
-
-// Parameters
-// ?service=registry.docker.io
-// scope=repository:library/alpine:pull
-
-type authTokenResponse struct {
-	Token       string `json:"token"`
-	AccessToken string `json:"access_token"`
-	ExpiresIn   int    `json:"expires_in"`
-	IssuedAt    string `json:"issued_at"`
-}
 
 type Client struct {
 	httpClient *http.Client
@@ -34,7 +25,6 @@ func NewClient(repo string) *Client {
 	}
 }
 
-// todo auth
 func (c *Client) Authenticate() error {
 	req, err := http.NewRequest(http.MethodGet, auth_url, nil)
 	if err != nil {
@@ -64,7 +54,58 @@ func (c *Client) Authenticate() error {
 	return nil
 }
 
-// todo pull manifests
+func (c *Client) authorizedRequest(method, url string) (*http.Request, error) {
+	if c.token.Token == "" {
+		return nil, fmt.Errorf("authorized requests need a token")
+	}
+
+	req, err := http.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.token.Token)
+	return req, nil
+}
+
+func (c *Client) GetManifest(tag string) error {
+	err := c.Authenticate()
+	if err != nil {
+		return err
+	}
+
+	u, err := url.Parse(registry)
+	if err != nil {
+		return err
+	}
+	u.Path = path.Join(u.Path, c.repo, "manifests", tag)
+	url := u.String()
+
+	req, err := c.authorizedRequest(http.MethodGet, url)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set(
+		"Accept",
+		"application/vnd.oci.image.index.v1+json, "+
+			"application/vnd.docker.distribution.manifest.list.v2+json, "+
+			"application/vnd.oci.image.manifest.v1+json, "+
+			"application/vnd.docker.distribution.manifest.v2+json",
+	)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	contentType := resp.Header.Get("Content-Type")
+
+	_ = contentType
+
+	return nil
+}
 
 // todo parse layers from manifest
 
@@ -74,3 +115,9 @@ func (c *Client) Authenticate() error {
 // and delete the contents
 
 // todo unzip the layers to the rootfs
+
+// pulling a layer
+// GET /v2/<name>/blobs/<digest>
+
+// pulling a manifest
+// GET /v2/<name>/manifests/<reference>
