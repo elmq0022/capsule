@@ -21,6 +21,8 @@ func main() {
 		fatalf(1, "expected at least 3 args but got %q", os.Args)
 	}
 	switch cmd := os.Args[1]; cmd {
+	case "pull":
+		// todo pull the image
 	case "run":
 		run()
 	case "child":
