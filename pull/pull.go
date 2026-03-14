@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"runtime"
 	"time"
 )
 
@@ -17,6 +18,7 @@ type Client struct {
 	httpClient *http.Client
 	repo       string
 	token      authTokenResponse
+	manifest   manifestResponse
 }
 
 func NewClient(repo string) *Client {
@@ -77,9 +79,9 @@ func (c *Client) GetManifest(tag string) error {
 		return err
 	}
 	u.Path = path.Join(u.Path, c.repo, "manifests", tag)
-	url := u.String()
+	uri := u.String()
 
-	req, err := c.authorizedRequest(http.MethodGet, url)
+	req, err := c.authorizedRequest(http.MethodGet, uri)
 	if err != nil {
 		return err
 	}
@@ -97,11 +99,74 @@ func (c *Client) GetManifest(tag string) error {
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("wanted status 200 OK but got: %s", resp.Status)
+	}
 
 	contentType := resp.Header.Get("Content-Type")
 	_ = contentType
 
-	return nil
+	arch := runtime.GOARCH
+	sys := runtime.GOOS
+
+	var ml manifestList = manifestList{}
+	var manifest manifestResponse = manifestResponse{}
+
+	if contentType == "application/vnd.oci.image.index.v1+json" ||
+		contentType == "application/vnd.docker.distribution.manifest.list.v2+json" {
+		if err := json.NewDecoder(resp.Body).Decode(&ml); err != nil {
+			return err
+		}
+
+		for _, manifestItem := range ml.Manifests {
+			if manifestItem.Platform.OS == sys && manifestItem.Platform.Architecture == arch {
+				u, err := url.Parse(registry)
+				if err != nil {
+					return err
+				}
+				u.Path = path.Join(u.Path, c.repo, "manifests", manifestItem.Digest)
+				uri := u.String()
+				req, err := c.authorizedRequest(http.MethodGet, uri)
+				if err != nil {
+					return err
+				}
+				req.Header.Set(
+					"Accept",
+					"application/vnd.oci.image.manifest.v1+json, "+
+						"application/vnd.docker.distribution.manifest.v2+json",
+				)
+				resp, err = c.httpClient.Do(req)
+				if err != nil {
+					return err
+				}
+				if resp.StatusCode != http.StatusOK {
+					return fmt.Errorf("wanted status 200 OK but got: %s", resp.Status)
+				}
+				contentType = resp.Header.Get("Content-Type")
+				if contentType != "application/vnd.oci.image.manifest.v1+json" &&
+					contentType != "application/vnd.docker.distribution.manifest.v2+json" {
+					return fmt.Errorf("expected manifest content type but got: %s", contentType)
+				}
+				defer resp.Body.Close()
+				if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+					return err
+				}
+				c.manifest = manifest
+				return nil
+			}
+		}
+	}
+
+	if contentType == "application/vnd.oci.image.manifest.v1+json" ||
+		contentType == "application/vnd.docker.distribution.manifest.v2+json" {
+		if err = json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
+			return err
+		}
+		c.manifest = manifest
+		return nil
+	}
+
+	return fmt.Errorf("could not find manifest for %s:%s", c.repo, tag)
 }
 
 func (c *Client) IsAuthenticated() bool {
