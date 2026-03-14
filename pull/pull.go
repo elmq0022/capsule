@@ -11,6 +11,7 @@ import (
 
 const registry string = "https://registry-1.docker.io/v2/"
 const auth_url = "https://auth.docker.io/token"
+const authRefreshBuffer = 15 * time.Second
 
 type Client struct {
 	httpClient *http.Client
@@ -55,8 +56,10 @@ func (c *Client) Authenticate() error {
 }
 
 func (c *Client) authorizedRequest(method, url string) (*http.Request, error) {
-	if c.token.Token == "" {
-		return nil, fmt.Errorf("authorized requests need a token")
+	if !c.IsAuthenticated() {
+		if err := c.Authenticate(); err != nil {
+			return nil, err
+		}
 	}
 
 	req, err := http.NewRequest(method, url, nil)
@@ -69,11 +72,6 @@ func (c *Client) authorizedRequest(method, url string) (*http.Request, error) {
 }
 
 func (c *Client) GetManifest(tag string) error {
-	err := c.Authenticate()
-	if err != nil {
-		return err
-	}
-
 	u, err := url.Parse(registry)
 	if err != nil {
 		return err
@@ -101,10 +99,27 @@ func (c *Client) GetManifest(tag string) error {
 	defer resp.Body.Close()
 
 	contentType := resp.Header.Get("Content-Type")
-
 	_ = contentType
 
 	return nil
+}
+
+func (c *Client) IsAuthenticated() bool {
+	if c.token.Token == "" {
+		return false
+	}
+
+	if c.token.ExpiresIn <= 0 || c.token.IssuedAt == "" {
+		return false
+	}
+
+	issuedAt, err := time.Parse(time.RFC3339, c.token.IssuedAt)
+	if err != nil {
+		return false
+	}
+
+	expiresAt := issuedAt.Add(time.Duration(c.token.ExpiresIn) * time.Second)
+	return time.Now().Add(authRefreshBuffer).Before(expiresAt)
 }
 
 // todo parse layers from manifest
