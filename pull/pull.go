@@ -245,7 +245,46 @@ func (c *Client) FetchLayersFromManifest(tag string) error {
 	return nil
 }
 
-// todo untar the layers to the rootfs
+type layerReadCloser struct {
+	file *os.File
+	gzip *gzip.Reader
+}
+
+func (l *layerReadCloser) Close() error {
+	var err error
+	if l.gzip != nil {
+		err = l.gzip.Close()
+	}
+	if closeErr := l.file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
+func openLayerTarReader(p, mediaType string) (*tar.Reader, io.Closer, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	closer := &layerReadCloser{file: f}
+	var r io.Reader = f
+
+	switch mediaType {
+	case "application/vnd.oci.image.layer.v1.tar+gzip",
+		"application/vnd.docker.image.rootfs.diff.tar.gzip":
+		gz, err := gzip.NewReader(f)
+		if err != nil {
+			f.Close()
+			return nil, nil, err
+		}
+		closer.gzip = gz
+		r = gz
+	}
+
+	return tar.NewReader(r), closer, nil
+}
+
 func (c *Client) ApplyLayers(tag string) error {
 	if len(c.manifest.Layers) == 0 {
 		return fmt.Errorf("no layers in manifest: %q", c.manifest)
@@ -262,29 +301,12 @@ func (c *Client) ApplyLayers(tag string) error {
 		if err := func() error {
 
 			p := filepath.Join(layerDir, layer.Digest)
-			f, err := os.Open(p)
+			t, closer, err := openLayerTarReader(p, layer.MediaType)
 			if err != nil {
 				return err
 			}
-			defer f.Close()
+			defer closer.Close()
 
-			var (
-				r  io.Reader = f
-				gz *gzip.Reader
-			)
-			switch layer.MediaType {
-			case "application/vnd.oci.image.layer.v1.tar+gzip",
-				"application/vnd.docker.image.rootfs.diff.tar.gzip":
-				gz, err = gzip.NewReader(f)
-				if err != nil {
-					return err
-				}
-				defer gz.Close()
-				r = gz
-			}
-
-			// apply whiteouts
-			t := tar.NewReader(r)
 			for {
 				hdr, err := t.Next()
 				if err == io.EOF {
@@ -309,36 +331,36 @@ func (c *Client) ApplyLayers(tag string) error {
 		}
 	}
 
-	// 	// extract normal archives
+	// extract normal archives
+	for _, layer := range c.manifest.Layers {
+		if err := func() error {
 
-	// 	path := filepath.Join(layerDir, layer.Digest)
-	// 	f, err := os.Open(path)
-	// 	if err != nil {
-	// 		return err
-	// 	}
+			p := filepath.Join(layerDir, layer.Digest)
+			t, closer, err := openLayerTarReader(p, layer.MediaType)
+			if err != nil {
+				return err
+			}
+			defer closer.Close()
 
-	// 	for _, layer := range c.manifest.Layers {
-	// 		path := filepath.Join(layerDir, layer.Digest)
-	// 		f, err := os.Open(path)
-	// 		if err != nil {
-	// 			return err
-	// 		}
+			for {
+				hdr, err := t.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
 
-	// 		// apply whiteouts
-	// 		t := tar.NewReader(f)
-	// 		for {
-	// 			hdr, err := t.Next()
-	// 			if err == io.EOF {
-	// 				break
-	// 			}
-	// 			if err != nil {
-	// 				return err
-	// 			}
-	// 			if !strings.HasPrefix(hdr.Name, ".wh.") {
-	// 				// extract the archive
-	// 			}
-	// 		}
-	// }
+				base := path.Base(hdr.Name)
+				if base != ".wh..wh..opq" && !strings.HasPrefix(base, ".wh.") {
+					// todo extract archieve
+				}
+			}
+			return nil
+		}(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
