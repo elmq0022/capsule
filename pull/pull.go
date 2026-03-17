@@ -1,6 +1,8 @@
 package pull
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -242,7 +245,102 @@ func (c *Client) FetchLayersFromManifest(tag string) error {
 	return nil
 }
 
-// todo unzip the layers to the rootfs
+// todo untar the layers to the rootfs
+func (c *Client) ApplyLayers(tag string) error {
+	if len(c.manifest.Layers) == 0 {
+		return fmt.Errorf("no layers in manifest: %q", c.manifest)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo, tag)
+
+	for _, layer := range c.manifest.Layers {
+		if err := func() error {
+
+			p := filepath.Join(layerDir, layer.Digest)
+			f, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			var (
+				r  io.Reader = f
+				gz *gzip.Reader
+			)
+			switch layer.MediaType {
+			case "application/vnd.oci.image.layer.v1.tar+gzip",
+				"application/vnd.docker.image.rootfs.diff.tar.gzip":
+				gz, err = gzip.NewReader(f)
+				if err != nil {
+					return err
+				}
+				defer gz.Close()
+				r = gz
+			}
+
+			// apply whiteouts
+			t := tar.NewReader(r)
+			for {
+				hdr, err := t.Next()
+				if err == io.EOF {
+					break
+				}
+				if err != nil {
+					return err
+				}
+
+				base := path.Base(hdr.Name)
+				if base == ".wh..wh..opq" {
+					// todo proces whiteout
+				} else if strings.HasPrefix(base, ".wh.") {
+					// todo proces whiteout
+				} else {
+					continue
+				}
+			}
+			return nil
+		}(); err != nil {
+			return err
+		}
+	}
+
+	// 	// extract normal archives
+
+	// 	path := filepath.Join(layerDir, layer.Digest)
+	// 	f, err := os.Open(path)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+
+	// 	for _, layer := range c.manifest.Layers {
+	// 		path := filepath.Join(layerDir, layer.Digest)
+	// 		f, err := os.Open(path)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+
+	// 		// apply whiteouts
+	// 		t := tar.NewReader(f)
+	// 		for {
+	// 			hdr, err := t.Next()
+	// 			if err == io.EOF {
+	// 				break
+	// 			}
+	// 			if err != nil {
+	// 				return err
+	// 			}
+	// 			if !strings.HasPrefix(hdr.Name, ".wh.") {
+	// 				// extract the archive
+	// 			}
+	// 		}
+	// }
+	return nil
+}
 
 // pulling a layer
 // GET /v2/<name>/blobs/<digest>
