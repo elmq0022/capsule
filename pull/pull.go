@@ -3,9 +3,12 @@ package pull
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -187,12 +190,57 @@ func (c *Client) IsAuthenticated() bool {
 	return time.Now().Add(authRefreshBuffer).Before(expiresAt)
 }
 
-// todo parse layers from manifest
+func (c *Client) FetchLayersFromManifest(tag string) error {
+	if len(c.manifest.Layers) == 0 {
+		return fmt.Errorf("no layers in manifest: %q", c.manifest)
+	}
 
-// todo fetch each layer
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
 
-// todo create the image dir if it doesn't exist
-// and delete the contents
+	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo, tag)
+	for _, layer := range c.manifest.Layers {
+		if err := func() error {
+			u, err := url.Parse(registry)
+			if err != nil {
+				return err
+			}
+			u.Path = path.Join(u.Path, c.repo, "blobs", layer.Digest)
+			uri := u.String()
+			req, err := c.authorizedRequest(http.MethodGet, uri)
+			if err != nil {
+				return err
+			}
+			resp, err := c.httpClient.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return fmt.Errorf("wanted 200 OK but got: %s", resp.Status)
+			}
+
+			if err := os.MkdirAll(layerDir, 0o755); err != nil {
+				return err
+			}
+			f, err := os.Create(filepath.Join(layerDir, layer.Digest))
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			// todo download to a temp file and rename on success to avoid partial blobs
+			// todo verify the downloaded content matches layer.Digest
+			_, err = io.Copy(f, resp.Body)
+			return err
+		}(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // todo unzip the layers to the rootfs
 
