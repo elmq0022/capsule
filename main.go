@@ -1,13 +1,16 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 
 	"github.com/elmq0022/capsule/cgroups"
 	"github.com/elmq0022/capsule/namespaces"
+	"github.com/elmq0022/capsule/pull"
 	"github.com/elmq0022/capsule/rootfs"
 )
 
@@ -22,7 +25,7 @@ func main() {
 	}
 	switch cmd := os.Args[1]; cmd {
 	case "pull":
-		// todo pull the image
+		pullImage()
 	case "run":
 		run()
 	case "child":
@@ -32,17 +35,46 @@ func main() {
 	}
 }
 
-func run() {
-	if len(os.Args) < 3 {
-		fatalf(1, "did not provide a program to run")
+func parseImageRef(image, tag string) (string, string) {
+	repo := strings.TrimSpace(image)
+	refTag := strings.TrimSpace(tag)
+	if repo == "" {
+		fatalf(1, "image must not be empty")
 	}
+	if refTag == "" {
+		fatalf(1, "tag must not be empty")
+	}
+	if !strings.Contains(repo, "/") {
+		repo = "library/" + repo
+	}
+	return repo, refTag
+}
+
+func pullImage() {
+	if len(os.Args) != 4 {
+		fatalf(1, "usage: %s pull <image> <tag>", os.Args[0])
+	}
+
+	repo, tag := parseImageRef(os.Args[2], os.Args[3])
+	client := pull.NewClient(repo)
+	if err := client.Pull(tag); err != nil {
+		fatalf(1, "pull %s:%s: %v", repo, tag, err)
+	}
+}
+
+func run() {
+	if len(os.Args) < 5 {
+		fatalf(1, "usage: %s run <image> <tag> <command> [args...]", os.Args[0])
+	}
+
+	repo, tag := parseImageRef(os.Args[2], os.Args[3])
 
 	// this reruns the **same** binary. So we run this this
 	// main.go file but with the name child instead of run
 	// the first pass sets up the new namespace and settings
 	// the second pass (child) will use that namespace and set
 	// the new hostname
-	cmd := exec.Command("/proc/self/exe", append([]string{"child"}, os.Args[2:]...)...)
+	cmd := exec.Command("/proc/self/exe", append([]string{"child", repo, tag}, os.Args[4:]...)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -68,7 +100,7 @@ func run() {
 	}
 
 	if err := cmd.Start(); err != nil {
-		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
+		fatalf(1, "running command %s returned error: %q", os.Args[4], err)
 	}
 
 	if err := cgroup.AttachPID(cmd.Process.Pid); err != nil {
@@ -76,26 +108,37 @@ func run() {
 	}
 
 	if err := cmd.Wait(); err != nil {
-		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				os.Exit(status.ExitStatus())
+			}
+		}
+		fatalf(1, "waiting for child process failed: %v", err)
 	}
 }
 
 func child() {
-	if len(os.Args) < 3 {
-		fatalf(1, "did not provide a program to run")
+	if len(os.Args) < 5 {
+		fatalf(1, "usage: %s child <image> <tag> <command> [args...]", os.Args[0])
 	}
-	cmd := exec.Command(os.Args[2], os.Args[3:]...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	repo, tag := parseImageRef(os.Args[2], os.Args[3])
 
 	if err := syscall.Sethostname([]byte("capsule")); err != nil {
 		fatalf(1, "couldn't set hostname: %v", err)
 	}
 
-	rfs, err := rootfs.NewRootFS("busybox")
+	rfs, err := rootfs.NewRootFS(repo, tag)
 	if err != nil {
 		fatalf(1, "couldn't prepare rootfs: %v", err)
+	}
+	pathEnv := rootfs.DefaultPathEnv()
+	if err := os.Setenv("PATH", pathEnv); err != nil {
+		fatalf(1, "set PATH: %v", err)
+	}
+	commandPath, err := rfs.ResolveCommand(os.Args[4], pathEnv)
+	if err != nil {
+		fatalf(1, "resolve command %q in %s:%s: %v", os.Args[4], repo, tag, err)
 	}
 	if err := rfs.MountRootFS(); err != nil {
 		fatalf(1, "%v", err)
@@ -109,7 +152,12 @@ func child() {
 	fmt.Printf("%q\n", os.Args)
 	fmt.Printf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid())
 
+	cmd := exec.Command(commandPath, os.Args[5:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
 	if err := cmd.Run(); err != nil {
-		fatalf(1, "running command %s returned error: %q", os.Args[2], err)
+		fatalf(1, "running command %s returned error: %q", os.Args[4], err)
 	}
 }
