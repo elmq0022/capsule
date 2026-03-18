@@ -32,8 +32,8 @@ Capsule aims to:
 - [x] isolate root filesystem with `chroot`
 - [x] isolate process tree and mounts with PID + mount namespaces
 - [x] apply pids and memory limits with cgroups
-- [ ] pull image layers and config from registry
-- [ ] unpack layers and run pulled image
+- [x] pull image layers and config from registry
+- [x] unpack layers and run pulled image
   
 ## Stretch Goal
 
