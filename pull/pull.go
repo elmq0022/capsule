@@ -203,7 +203,7 @@ func (c *Client) FetchLayersFromManifest(tag string) error {
 		return err
 	}
 
-	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo, tag)
+	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo)
 	for _, layer := range c.manifest.Layers {
 		if err := func() error {
 			u, err := url.Parse(registry)
@@ -285,6 +285,42 @@ func openLayerTarReader(p, mediaType string) (*tar.Reader, io.Closer, error) {
 	return tar.NewReader(r), closer, nil
 }
 
+func removeDirContents(dir string) error {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+
+	for _, entry := range entries {
+		p := filepath.Join(dir, entry.Name())
+		if err := os.RemoveAll(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func resolveRootfsPath(root string, tarPath string) (string, error) {
+	clean := path.Clean("/" + tarPath)
+	rel := strings.TrimPrefix(clean, "/")
+	if rel == "." {
+		rel = ""
+	}
+
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	relToRoot, err := filepath.Rel(root, full)
+	if err != nil {
+		return "", err
+	}
+	if relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("tar path escapes rootfs: %q", tarPath)
+	}
+	return full, nil
+}
+
 func (c *Client) ApplyLayers(tag string) error {
 	if len(c.manifest.Layers) == 0 {
 		return fmt.Errorf("no layers in manifest: %q", c.manifest)
@@ -295,20 +331,21 @@ func (c *Client) ApplyLayers(tag string) error {
 		return err
 	}
 
-	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo, tag)
+	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo)
+	rootfsDir := filepath.Join(home, ".local", "share", "capsule", "rootfs", c.repo, tag)
 
 	for _, layer := range c.manifest.Layers {
 		if err := func() error {
 
-			p := filepath.Join(layerDir, layer.Digest)
-			t, closer, err := openLayerTarReader(p, layer.MediaType)
+			p1 := filepath.Join(layerDir, layer.Digest)
+			t1, closer, err := openLayerTarReader(p1, layer.MediaType)
 			if err != nil {
 				return err
 			}
 			defer closer.Close()
 
 			for {
-				hdr, err := t.Next()
+				hdr, err := t1.Next()
 				if err == io.EOF {
 					break
 				}
@@ -316,34 +353,39 @@ func (c *Client) ApplyLayers(tag string) error {
 					return err
 				}
 
+				dir := path.Dir(hdr.Name)
 				base := path.Base(hdr.Name)
 				if base == ".wh..wh..opq" {
-					// todo proces whiteout
+					wo, err := resolveRootfsPath(rootfsDir, dir)
+					if err != nil {
+						return err
+					}
+					if err := removeDirContents(wo); err != nil {
+						return err
+					}
 				} else if strings.HasPrefix(base, ".wh.") {
-					// todo proces whiteout
+					name := strings.TrimPrefix(base, ".wh.")
+					wo, err := resolveRootfsPath(rootfsDir, path.Join(dir, name))
+					if err != nil {
+						return err
+					}
+					if err := os.RemoveAll(wo); err != nil {
+						return err
+					}
 				} else {
 					continue
 				}
 			}
-			return nil
-		}(); err != nil {
-			return err
-		}
-	}
 
-	// extract normal archives
-	for _, layer := range c.manifest.Layers {
-		if err := func() error {
-
-			p := filepath.Join(layerDir, layer.Digest)
-			t, closer, err := openLayerTarReader(p, layer.MediaType)
+			p2 := filepath.Join(layerDir, layer.Digest)
+			t2, closer2, err := openLayerTarReader(p2, layer.MediaType)
 			if err != nil {
 				return err
 			}
-			defer closer.Close()
+			defer closer2.Close()
 
 			for {
-				hdr, err := t.Next()
+				hdr, err := t2.Next()
 				if err == io.EOF {
 					break
 				}
