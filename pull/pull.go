@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -321,6 +322,113 @@ func resolveRootfsPath(root string, tarPath string) (string, error) {
 	return full, nil
 }
 
+func ensureParentDir(p string) error {
+	parent := filepath.Dir(p)
+	return os.MkdirAll(parent, 0o755)
+}
+
+func unixDeviceNumber(major, minor int64) int {
+	return int(((major & 0xfff) << 8) | (minor & 0xff) | ((minor &^ 0xff) << 12))
+}
+
+func applyMetadata(p string, hdr *tar.Header) error {
+	if hdr.Typeflag != tar.TypeSymlink {
+		if err := os.Chmod(p, os.FileMode(hdr.Mode)); err != nil {
+			return err
+		}
+	}
+	if err := os.Lchown(p, hdr.Uid, hdr.Gid); err != nil && !os.IsPermission(err) {
+		return err
+	}
+	if hdr.Typeflag != tar.TypeSymlink {
+		atime := hdr.AccessTime
+		if atime.IsZero() {
+			atime = hdr.ModTime
+		}
+		if err := os.Chtimes(p, atime, hdr.ModTime); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func extractLayerEntry(rootfsDir string, hdr *tar.Header, r io.Reader) error {
+	target, err := resolveRootfsPath(rootfsDir, hdr.Name)
+	if err != nil {
+		return err
+	}
+
+	switch hdr.Typeflag {
+	case tar.TypeDir:
+		if err := os.MkdirAll(target, os.FileMode(hdr.Mode)); err != nil {
+			return err
+		}
+	case tar.TypeReg, tar.TypeRegA:
+		if err := ensureParentDir(target); err != nil {
+			return err
+		}
+		f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(hdr.Mode))
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(f, r); err != nil {
+			f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
+	case tar.TypeSymlink:
+		if err := ensureParentDir(target); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Symlink(hdr.Linkname, target); err != nil {
+			return err
+		}
+	case tar.TypeLink:
+		linkTarget, err := resolveRootfsPath(rootfsDir, hdr.Linkname)
+		if err != nil {
+			return err
+		}
+		if err := ensureParentDir(target); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if err := os.Link(linkTarget, target); err != nil {
+			return err
+		}
+	case tar.TypeChar, tar.TypeBlock, tar.TypeFifo:
+		if err := ensureParentDir(target); err != nil {
+			return err
+		}
+		if err := os.RemoveAll(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		mode := uint32(hdr.Mode)
+		switch hdr.Typeflag {
+		case tar.TypeChar:
+			mode |= syscall.S_IFCHR
+		case tar.TypeBlock:
+			mode |= syscall.S_IFBLK
+		case tar.TypeFifo:
+			mode |= syscall.S_IFIFO
+		}
+		dev := unixDeviceNumber(hdr.Devmajor, hdr.Devminor)
+		if err := syscall.Mknod(target, mode, dev); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported tar entry type %q for %q", hdr.Typeflag, hdr.Name)
+	}
+
+	return applyMetadata(target, hdr)
+}
+
 func (c *Client) ApplyLayers(tag string) error {
 	if len(c.manifest.Layers) == 0 {
 		return fmt.Errorf("no layers in manifest: %q", c.manifest)
@@ -333,6 +441,9 @@ func (c *Client) ApplyLayers(tag string) error {
 
 	layerDir := filepath.Join(home, ".local", "share", "capsule", "layers", c.repo)
 	rootfsDir := filepath.Join(home, ".local", "share", "capsule", "rootfs", c.repo, tag)
+	if err := os.MkdirAll(rootfsDir, 0o755); err != nil {
+		return err
+	}
 
 	for _, layer := range c.manifest.Layers {
 		if err := func() error {
@@ -395,7 +506,9 @@ func (c *Client) ApplyLayers(tag string) error {
 
 				base := path.Base(hdr.Name)
 				if base != ".wh..wh..opq" && !strings.HasPrefix(base, ".wh.") {
-					// todo extract archieve
+					if err := extractLayerEntry(rootfsDir, hdr, t2); err != nil {
+						return err
+					}
 				}
 			}
 			return nil
