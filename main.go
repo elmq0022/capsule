@@ -149,9 +149,6 @@ func child() {
 		}
 	}()
 
-	fmt.Printf("%q\n", os.Args)
-	fmt.Printf("pid: %d, ppid: %d\n", os.Getpid(), os.Getppid())
-
 	cmd := exec.Command(commandPath, os.Args[5:]...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
