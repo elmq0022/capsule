@@ -80,8 +80,8 @@ func TestClientIsAuthenticated(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			client := &Client{token: tt.token}
 
-			if got := client.IsAuthenticated(); got != tt.expect {
-				t.Fatalf("IsAuthenticated() = %v, want %v", got, tt.expect)
+			if got := client.isAuthenticated(); got != tt.expect {
+				t.Fatalf("isAuthenticated() = %v, want %v", got, tt.expect)
 			}
 		})
 	}

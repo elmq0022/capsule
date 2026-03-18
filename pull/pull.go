@@ -35,7 +35,17 @@ func NewClient(repo string) *Client {
 	}
 }
 
-func (c *Client) Authenticate() error {
+func (c *Client) Pull(tag string) error {
+	if err := c.getManifest(tag); err != nil {
+		return err
+	}
+	if err := c.fetchLayersFromManifest(); err != nil {
+		return err
+	}
+	return c.applyLayers(tag)
+}
+
+func (c *Client) authenticate() error {
 	req, err := http.NewRequest(http.MethodGet, auth_url, nil)
 	if err != nil {
 		return err
@@ -65,8 +75,8 @@ func (c *Client) Authenticate() error {
 }
 
 func (c *Client) authorizedRequest(method, url string) (*http.Request, error) {
-	if !c.IsAuthenticated() {
-		if err := c.Authenticate(); err != nil {
+	if !c.isAuthenticated() {
+		if err := c.authenticate(); err != nil {
 			return nil, err
 		}
 	}
@@ -80,7 +90,7 @@ func (c *Client) authorizedRequest(method, url string) (*http.Request, error) {
 	return req, nil
 }
 
-func (c *Client) GetManifest(tag string) error {
+func (c *Client) getManifest(tag string) error {
 	u, err := url.Parse(registry)
 	if err != nil {
 		return err
@@ -176,7 +186,7 @@ func (c *Client) GetManifest(tag string) error {
 	return fmt.Errorf("could not find manifest for %s:%s", c.repo, tag)
 }
 
-func (c *Client) IsAuthenticated() bool {
+func (c *Client) isAuthenticated() bool {
 	if c.token.Token == "" {
 		return false
 	}
@@ -194,7 +204,7 @@ func (c *Client) IsAuthenticated() bool {
 	return time.Now().Add(authRefreshBuffer).Before(expiresAt)
 }
 
-func (c *Client) FetchLayersFromManifest(tag string) error {
+func (c *Client) fetchLayersFromManifest() error {
 	if len(c.manifest.Layers) == 0 {
 		return fmt.Errorf("no layers in manifest: %q", c.manifest)
 	}
@@ -429,7 +439,7 @@ func extractLayerEntry(rootfsDir string, hdr *tar.Header, r io.Reader) error {
 	return applyMetadata(target, hdr)
 }
 
-func (c *Client) ApplyLayers(tag string) error {
+func (c *Client) applyLayers(tag string) error {
 	if len(c.manifest.Layers) == 0 {
 		return fmt.Errorf("no layers in manifest: %q", c.manifest)
 	}
